@@ -46,6 +46,31 @@ jobs:
 **Pinning:** `@main` tracks the latest. Pin to a tag/SHA
 (`...pr-review.yml@v1`) if you want reproducible review behaviour per repo.
 
+## Versioning (release channel)
+
+Callers pin to the **`@stable`** channel, not `@main`:
+
+```yaml
+uses: Bird-Buddy/github-workflows/.github/workflows/pr-review.yml@stable
+```
+
+- **`main`** — development. Changes land here first and are NOT live for callers.
+- **`v1`, `v2`, …** — immutable version tags (provenance + rollback). Never moved.
+- **`stable`** — a moving pointer to the blessed version. Callers follow it.
+
+**To ship a change:** merge to `main` → test (point a scratch repo at `@main` or
+`@v<next>`) → cut an immutable tag `vN` → **move `stable` to `vN`**. Only then do
+all callers get it.
+
+```bash
+# after merging + testing on main:
+git tag -a v2 -m "v2: <what changed>" && git push origin v2
+git tag -f stable v2 && git push -f origin stable   # promote → live for all callers
+```
+
+A caller that wants to opt out of the channel can pin an immutable version
+(`@v1`) instead of `@stable`.
+
 ## Notes
 
 - Secrets are **never** stored here — they live in each caller repo (or as an
