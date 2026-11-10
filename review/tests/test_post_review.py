@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from post_review import build_comments, commentable_lines, inline_disabled  # noqa: E402
+from post_review import build_comments, commentable_lines, inline_disabled, without_suggestions  # noqa: E402
 
 DIFF = """\
 diff --git a/app/server.py b/app/server.py
@@ -119,6 +119,23 @@ class BuildComments(unittest.TestCase):
 
     def test_not_a_list(self):
         self.assertEqual(self.build({"path": "a.py"}), ([], []))
+
+
+class WithoutSuggestions(unittest.TestCase):
+    def test_suggestion_becomes_plain_code_block(self):
+        body = "🔴 fix\n```suggestion\n    x = 0\n```"
+        self.assertEqual(without_suggestions(body), "🔴 fix\n```\n    x = 0\n```")
+
+    def test_long_fence_and_indent(self):
+        self.assertEqual(without_suggestions("  ````suggestion\nx\n  ````"), "  ````\nx\n  ````")
+
+    def test_other_code_blocks_untouched(self):
+        body = "```python\nx = 0\n```\nsee suggestion below"
+        self.assertEqual(without_suggestions(body), body)
+
+    def test_applied_to_inline_comments(self):
+        comments, _ = build_comments([{"path": "a.py", "line": 1, "body": "```suggestion\nx\n```"}], {"a.py": {1}}, set())
+        self.assertNotIn("suggestion", comments[0]["body"])
 
 
 class InlineDisabled(unittest.TestCase):

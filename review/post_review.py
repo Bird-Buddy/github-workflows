@@ -18,6 +18,7 @@ REVIEW_MD = "/tmp/review.md"
 INLINE_JSON = "/tmp/inline.json"
 REPO_RULES = (".github/review.md", "REVIEW.md")  # pinned to the base branch before this runs
 HUNK = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+SUGGESTION_FENCE = re.compile(r"^(\s*(?:`{3,}|~{3,}))\s*suggestion\b", re.MULTILINE)
 THREADS_QUERY = (
     "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p)"
     "{reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{author{login}}}}}}}}"
@@ -49,12 +50,17 @@ def inline_disabled(rules: str) -> bool:
     return re.search(r"(?im)^\s*inline:\s*off\b", rules) is not None
 
 
+def without_suggestions(body: str) -> str:
+    """Turn ```suggestion blocks into plain code blocks: shows the fix, no one-click commit."""
+    return SUGGESTION_FENCE.sub(r"\1", body)
+
+
 def build_comments(inline, valid, open_threads, limit=MAX_INLINE):
     """Turn the model's inline list into GitHub review comments; returns (comments, skipped)."""
     comments, skipped = [], []
     for item in (inline if isinstance(inline, list) else [])[:limit]:
         try:
-            path, line, body = item["path"], int(item["line"]), str(item["body"])
+            path, line, body = item["path"], int(item["line"]), without_suggestions(str(item["body"]))
             start = int(item["start_line"]) if item.get("start_line") is not None else None
         except (KeyError, TypeError, ValueError):
             skipped.append(f"malformed: {item!r:.80}")
@@ -103,7 +109,7 @@ def main() -> None:
     if not os.path.exists(REVIEW_MD) or not open(REVIEW_MD).read().strip():
         print("No review written — nothing to post.")
         return
-    summary = open(REVIEW_MD).read()
+    summary = without_suggestions(open(REVIEW_MD).read())
 
     try:
         inline = json.load(open(INLINE_JSON))
