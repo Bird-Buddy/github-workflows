@@ -16,7 +16,7 @@ import subprocess
 MAX_INLINE = 5
 REVIEW_MD = "/tmp/review.md"
 INLINE_JSON = "/tmp/inline.json"
-REPO_RULES = ".github/review.md"
+REPO_RULES = (".github/review.md", "REVIEW.md")  # pinned to the base branch before this runs
 HUNK = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 THREADS_QUERY = (
     "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p)"
@@ -45,7 +45,7 @@ def commentable_lines(diff: str) -> dict[str, set[int]]:
 
 
 def inline_disabled(rules: str) -> bool:
-    """A repo opts out with a line `inline: off` in .github/review.md."""
+    """A repo opts out with a line `inline: off` in its review rules."""
     return re.search(r"(?im)^\s*inline:\s*off\b", rules) is not None
 
 
@@ -109,8 +109,9 @@ def main() -> None:
         inline = json.load(open(INLINE_JSON))
     except (OSError, ValueError):
         inline = []
-    if os.path.exists(REPO_RULES) and inline_disabled(open(REPO_RULES).read()):
-        print("inline: off in .github/review.md — summary only")
+    rules = "\n".join(open(p).read() for p in REPO_RULES if os.path.exists(p))
+    if inline_disabled(rules):
+        print("inline: off in the repo's review rules — summary only")
         inline = []
 
     valid = commentable_lines(gh("pr", "diff", pr, "-R", repo).stdout) if inline else {}

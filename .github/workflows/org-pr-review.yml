@@ -7,12 +7,14 @@
 # ruleset ref alone decides which version runs (point it at a branch to test).
 #
 # Per-repo context, all optional: CLAUDE.md (general repo standard) and
-# .github/review.md (extra review rules; `inline: off` = summary only).
+# .github/review.md or REVIEW.md (extra review rules; `inline: off` = summary only).
 # Token: org secret ORG_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
 # Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5; `deep-review` label → Opus 5.5 + high effort.
 #
 # This is a REQUIRED check, so it must never block a merge on its own: drafts and
 # bot PRs are skipped (skipped = passing), and every step after checkout is non-fatal.
+# Claude only runs once its config + review rules are pinned to the base branch
+# (restore_base_config.sh), so a PR cannot steer its own review.
 
 name: Claude PR review
 
@@ -68,22 +70,30 @@ jobs:
           gh api "repos/Bird-Buddy/github-workflows/tarball/$ref" | tar -xz -C "$dir" --strip-components=1
           echo "REVIEW_TOOLS=$dir/review" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-node@v5
+      - name: Pin Claude config and review rules to the base branch
+        id: pin
         if: steps.tooling.outcome == 'success'
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash "$REVIEW_TOOLS/restore_base_config.sh"
+
+      - uses: actions/setup-node@v5
+        if: steps.pin.outcome == 'success'
         with:
           node-version: 22
 
       - name: Install Claude Code CLI
-        if: steps.tooling.outcome == 'success'
+        if: steps.pin.outcome == 'success'
         continue-on-error: true
         run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
       - name: Review PR
-        if: steps.tooling.outcome == 'success'
+        if: steps.pin.outcome == 'success'
         continue-on-error: true
         run: bash "$REVIEW_TOOLS/run_review.sh"
 
       - name: Post review (summary + inline)
-        if: steps.tooling.outcome == 'success'
+        if: steps.pin.outcome == 'success'
         continue-on-error: true
         run: python3 "$REVIEW_TOOLS/post_review.py"

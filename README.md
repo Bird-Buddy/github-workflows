@@ -61,6 +61,7 @@ this file, ref **`main`**). Repos need no workflow file at all.
 | File | What |
 |---|---|
 | `review/prompt.md` | The review prompt (`{{PR}}`, `{{REPO}}` placeholders) |
+| `review/restore_base_config.sh` | Pins `.claude/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, review rules to the **base** branch |
 | `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md` + `/tmp/inline.json` |
 | `review/post_review.py` | Validates inline comments against the diff, dedupes, posts one review |
 | `review/tests/` | Unit tests (`python3 -m unittest discover -s review/tests`) |
@@ -77,14 +78,19 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
 
 - **Token:** org secret `ORG_ANTHROPIC_TEAM_TOKEN`, shared with the targeted repos.
   Missing token → warning, review skipped.
-- **Per-repo rules (optional):** `.github/review.md` — extra rules for that repo
-  only; they win over the generic prompt. `CLAUDE.md` is still read for context.
+- **Per-repo rules (optional):** `.github/review.md` or `REVIEW.md` (root; same
+  name Anthropic's managed Code Review uses) — extra rules for that repo only;
+  they win over the generic prompt. `CLAUDE.md` is still read for context.
+- **A PR can't steer its own review:** before Claude runs, `.claude/` (settings,
+  hooks), `.mcp.json`, every `CLAUDE.md`/`AGENTS.md` and the review rules are
+  reset to the base branch (deleted if base has none). Rule changes apply once
+  merged. Without this, a hook added in a PR would run with the seat token.
 - **Output:** one GitHub review — the summary (verdict + 🔴/🟠/🔵) as the review
   body, plus **inline comments for 🔴/🟠 only** (max 5, committable `suggestion`
   when the fix is small and certain). Inline comments on lines outside the diff
   are dropped (the finding stays in the summary); no new thread where an open bot
   thread already sits on that line. If posting fails, the summary goes out as a
-  plain comment. Opt out per repo with a line `inline: off` in `.github/review.md`.
+  plain comment. Opt out per repo with a line `inline: off` in the review rules.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`;
   `deep-review` label → Opus 5.5 + high effort.
 - **Never blocks a merge:** drafts/bot PRs are skipped (skipped counts as
