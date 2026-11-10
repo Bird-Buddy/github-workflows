@@ -1,0 +1,27 @@
+# Checks for this repo: workflow lint, shell lint, review-script unit tests.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color
+
+      - name: shellcheck
+        run: shellcheck review/*.sh
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s review/tests -v
