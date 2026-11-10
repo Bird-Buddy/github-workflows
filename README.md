@@ -50,7 +50,11 @@ jobs:
 
 The same review, but run **directly** by GitHub on every PR in every repo
 targeted by the org ruleset **"Claude PR review"** (Require workflows to pass →
-this file, ref `stable`). Repos need no workflow file at all.
+this file, ref **`main`**). Repos need no workflow file at all.
+
+> Ref must be a **branch**: with the `stable` tag the ruleset applied but the
+> workflow never started, leaving every PR blocked. Changes to `main` are live
+> for all targeted repos immediately — so `main` is protected (PR + approval).
 
 - **Token:** org secret `ORG_ANTHROPIC_TEAM_TOKEN`, shared with the targeted repos.
   Missing token → warning, review skipped.
