@@ -50,16 +50,53 @@ jobs:
 
 The same review, but run **directly** by GitHub on every PR in every repo
 targeted by the org ruleset **"Claude PR review"** (Require workflows to pass →
-this file, ref `stable`). Repos need no workflow file at all.
+this file, ref **`main`**). Repos need no workflow file at all.
+
+> Ref must be a **branch**: with the `stable` tag the ruleset applied but the
+> workflow never started, leaving every PR blocked. Changes to `main` are live
+> for all targeted repos immediately — so `main` is protected (PR + approval).
+
+**Layout** — the workflow is a thin shell; the logic is in `review/`:
+
+| File | What |
+|---|---|
+| `review/prompt.md` | The review prompt (`{{PR}}`, `{{REPO}}` placeholders) |
+| `review/restore_base_config.sh` | Pins `.claude/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, review rules to the **base** branch |
+| `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md` + `/tmp/inline.json` |
+| `review/post_review.py` | Validates inline comments against the diff, dedupes, posts one review |
+| `review/tests/` | Unit tests (`python3 -m unittest discover -s review/tests`) |
+
+The workflow downloads `review/` from this repo **at the commit it runs from**
+(`github.workflow_sha`), so workflow, prompt and scripts are always the same
+version. **To test a change:** push a branch, point the ruleset's workflow ref at
+it, open a PR in a targeted repo, then set the ref back to `main` after merging.
+CI (`ci.yml`) runs actionlint, shellcheck and the unit tests on every PR here.
+
+This only works while this repo is **public** (the download uses the target
+repo's `GITHUB_TOKEN`). If it ever goes private, pass a token with read access
+to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
 
 - **Token:** org secret `ORG_ANTHROPIC_TEAM_TOKEN`, shared with the targeted repos.
   Missing token → warning, review skipped.
-- **Per-repo rules (optional):** `.github/review.md` — extra rules for that repo
-  only; they win over the generic prompt. `CLAUDE.md` is still read for context.
+- **Per-repo rules (optional):** `.github/review.md` or `REVIEW.md` (root; same
+  name Anthropic's managed Code Review uses) — extra rules for that repo only;
+  they win over the generic prompt. `CLAUDE.md` is still read for context.
+- **A PR can't steer its own review:** before Claude runs, `.claude/` (settings,
+  hooks), `.mcp.json`, every `CLAUDE.md`/`AGENTS.md` and the review rules are
+  reset to the base branch (deleted if base has none). Rule changes apply once
+  merged. Without this, a hook added in a PR would run with the seat token.
+- **Output:** one GitHub review — the summary (verdict + 🔴/🟠/🔵) as the review
+  body, plus **inline comments for 🔴/🟠 only** (max 5, committable `suggestion`
+  when the fix is small and certain). Inline comments on lines outside the diff
+  are dropped (the finding stays in the summary); no new thread where an open bot
+  thread already sits on that line. If posting fails, the summary goes out as a
+  plain comment. Opt out per repo with a line `inline: off` in the review rules.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`;
   `deep-review` label → Opus 5.5 + high effort.
 - **Never blocks a merge:** drafts/bot PRs are skipped (skipped counts as
-  passing) and the review step is `continue-on-error`.
+  passing) and every step after checkout is `continue-on-error`.
+- **CLI version** is pinned (`CLAUDE_CODE_VERSION` in the workflow); bump it
+  deliberately, like any dependency.
 - Remove a repo's own `pr-review.yml` caller when it's covered by the ruleset,
   or it gets two reviews per PR.
 
