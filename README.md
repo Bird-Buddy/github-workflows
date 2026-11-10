@@ -86,8 +86,10 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   reset to the base branch (deleted if base has none). Rule changes apply once
   merged. Without this, a hook added in a PR would run with the seat token.
 - **Output:** one GitHub review — the summary (verdict + 🔴/🟠/🔵) as the review
-  body, plus **inline comments for 🔴/🟠 only** (max 5, committable `suggestion`
-  when the fix is small and certain). Inline comments on lines outside the diff
+  body, plus **inline comments for 🔴/🟠 only** (max 5). **No committable
+  suggestions** — the fix is explained (optionally as a plain code block) and the
+  author writes it; any ```` ```suggestion ```` block is turned into a plain code
+  block before posting. Inline comments on lines outside the diff
   are dropped (the finding stays in the summary); no new thread where an open bot
   thread already sits on that line. If posting fails, the summary goes out as a
   plain comment. Opt out per repo with a line `inline: off` in the review rules.
