@@ -46,6 +46,23 @@ jobs:
 **Pinning:** `@main` tracks the latest. Pin to a tag/SHA
 (`...pr-review.yml@v1`) if you want reproducible review behaviour per repo.
 
+### `org-pr-review.yml` — the same review, org-wide (no per-repo workflow)
+
+The same review, but run **directly** by GitHub on every PR in every repo
+targeted by the org ruleset **"Claude PR review"** (Require workflows to pass →
+this file, ref `stable`). Repos need no workflow file at all.
+
+- **Token:** org secret `BB_ANTHROPIC_TEAM_TOKEN`, shared with the targeted repos.
+  Missing token → warning, review skipped.
+- **Per-repo rules (optional):** `.github/review.md` — extra rules for that repo
+  only; they win over the generic prompt. `CLAUDE.md` is still read for context.
+- **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`;
+  `deep-review` label → Opus 5.5 + high effort.
+- **Never blocks a merge:** drafts/bot PRs are skipped (skipped counts as
+  passing) and the review step is `continue-on-error`.
+- Remove a repo's own `pr-review.yml` caller when it's covered by the ruleset,
+  or it gets two reviews per PR.
+
 ## Versioning (release channel)
 
 Callers pin to the **`@stable`** channel, not `@main`:
