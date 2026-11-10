@@ -32,6 +32,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.ORG_ANTHROPIC_TEAM_TOKEN }}
       PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REPO: ${{ github.repository }}
       REVIEW_MODEL: ${{ (contains(github.event.pull_request.labels.*.name, 'deep-review') && 'claude-opus-5-5') || vars.BB_REVIEW_MODEL || 'claude-sonnet-5' }}
       REVIEW_EFFORT: ${{ contains(github.event.pull_request.labels.*.name, 'deep-review') && 'high' || 'medium' }}
@@ -58,12 +59,12 @@ jobs:
             exit 0
           fi
           set -o pipefail
-          claude -p "You are an expert code reviewer doing ONE concise, holistic review of PR #$PR in repo $REPO that ends in a clear overall opinion. Do NOT spawn sub-agents. Do NOT post inline comments or committable suggestions — one skimmable comment with your judgement.
+          claude -p "You are an expert code reviewer doing ONE concise, holistic review of PR #$PR in repo $REPO that ends in a clear overall opinion. Do NOT spawn sub-agents. Do NOT post anything yourself — write the two output files in step 7; a later step posts them as one GitHub review (summary + inline comments).
 
           Steps:
           1. Orient to the repo (cheaply). Read .github/review.md if present: these are this repo's OWN review rules — follow them, they override the generic guidance below where they conflict. Then read CLAUDE.md / AGENTS.md / CONTRIBUTING.md if present and glance at the layout to learn what this codebase is, which stack(s) each changed area uses, and the conventions it holds itself to. Judge each changed area by its own stack's standards. CLAUDE.md is the standard; the repo's existing style is the bar, never your own preference.
-          2. PR context: gh pr view $PR --json title,body,headRefName,baseRefName,labels,comments.
-          3. Re-review handling. Among the comments find the MOST RECENT one signed 'Reviewed automatically by Claude Code'. If it listed 🔴, verify each was actually fixed in the current diff (do not assume). If it listed 🟠, re-check each and do NOT re-flag one a human has replied to / accepted. If 'No blocking issues.', review normally. If none, first review.
+          2. PR context: gh pr view $PR --json title,body,headRefName,baseRefName,labels,comments,reviews.
+          3. Re-review handling. Among the comments AND review bodies find the MOST RECENT one signed 'Reviewed automatically by Claude Code'. If it listed 🔴, verify each was actually fixed in the current diff (do not assume). If it listed 🟠, re-check each and do NOT re-flag one a human has replied to / accepted. If 'No blocking issues.', review normally. If none, first review.
           4. Tracker grounding. Ticket ids look like PREFIX-number and appear in headRefName or the title. If a tracker posted a linkback comment with the ticket title+description, read it from the comments you fetched and treat the ticket REQUIREMENTS as the source of truth for the objective (a different-but-valid approach is fine). If no ticket, review against the PR description. Never fail the review over a missing ticket.
           5. Read BEYOND the diff — this separates a real review from a diff-checker. Run gh pr diff $PR, then for the changed code READ the touched files in full and Grep for the key callers / tests / usages of anything whose contract changed (a function signature, an exported symbol, a config/lock entry, an infra resource). Judge whether the change breaks something its callers rely on. Keep this targeted, not a whole-repo audit.
           6. Classify findings against the failure modes CLAUDE.md says matter for this repo:
@@ -71,15 +72,90 @@ jobs:
              🟠 Potential issue — a real risk needing a human decision, where safety depends on something the diff alone cannot prove. Walk these precondition classes and flag any the PR neither includes nor mentions, stating EXACTLY what a human must verify: ORDERING (something must land/deploy/publish/migrate first); PERSISTED SHAPE (data/artifacts/state already written that this now reads/writes differently); CONSUMER COMPATIBILITY (callers, services, or clients this diff cannot see); CONFIGURATION (a var/flag/credential/permission that must exist first); REPEAT SAFETY (retry/rerun/concurrent/partial-failure). A class with nothing real behind it is NOT a finding.
              🔵 Suggestion — up to 3 concrete non-blocking improvements on code the PR touches.
              Keep 🔴/🟠 low-noise: no style/nits, no scratch/experiment code, no generated/fetched artifacts, no pre-existing issues. Unsure 🔴 -> 🟠; unsure 🟠 -> drop.
-          7. Write ONE concise review to /tmp/review.md (Write tool) and post it: gh pr comment $PR --body-file /tmp/review.md
+          7. Write the summary to /tmp/review.md (Write tool):
              - Open with '## Review' then a 1-2 sentence VERDICT in your own words: what the PR does and your overall opinion (looks good to merge / one risk to decide first / needs a fix before merge). A judgement, not a restatement of the diff. Be direct.
              - Then, only if present: a '**Blockers**' section (🔴, each citing file:line) and a '**Verify before merge**' section (🟠, each citing file:line and exactly what a human must check). If neither, write one line: 'No blocking issues.'
-             - Optionally a short '**Suggestions**' section (🔵, up to 3, one line each) as plain prose. No committable suggestion blocks, no inline comments.
+             - Optionally a short '**Suggestions**' section (🔵, up to 3, one line each) as plain prose.
              - Keep it tight and skimmable — a reviewer's opinion, not an exhaustive list. Only 🔴 🟠 🔵 emojis. End with the italic line: _Reviewed automatically by Claude Code (claude -p, team seat)_
-             Then confirm in chat what you posted." \
+          8. Write /tmp/inline.json (Write tool): a JSON array of inline comments, ONLY for the 🔴 and 🟠 findings above, at most 5, [] if none. Each item: {\"path\": \"repo-relative path\", \"line\": N, \"body\": \"...\"} plus optional \"start_line\": M for a multi-line range. line/start_line are line numbers in the NEW version of the file and MUST be added or context lines inside a diff hunk (otherwise the comment is dropped). body starts with the emoji and a short title, then 1-3 sentences. Only when the fix is small and you are certain, add a GitHub suggestion block (three backticks + suggestion ... three backticks) whose content REPLACES exactly lines start_line..line (or just line) — keep indentation exact. Every inline finding must also appear in the summary.
+             Then confirm in chat what you wrote." \
             --model "$REVIEW_MODEL" \
             --effort "$REVIEW_EFFORT" \
             --output-format json \
-            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Read,Grep,Glob,Write" | tee /tmp/claude-out.json
+            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Read,Grep,Glob,Write" | tee /tmp/claude-out.json
           echo "===== TOKEN USAGE / COST (claude -p) ====="
           jq '{num_turns, duration_ms, total_cost_usd, usage: {input_tokens: .usage.input_tokens, output_tokens: .usage.output_tokens, cache_creation_input_tokens: .usage.cache_creation_input_tokens, cache_read_input_tokens: .usage.cache_read_input_tokens}}' /tmp/claude-out.json 2>/dev/null || tail -5 /tmp/claude-out.json
+
+      - name: Post review (summary + inline)
+        # Deterministic posting: inline comments are validated against the diff, deduped
+        # against open bot threads, and sent as ONE review. Any failure → summary as a plain comment.
+        continue-on-error: true
+        run: |
+          [ -s /tmp/review.md ] || { echo "No review written — nothing to post."; exit 0; }
+          python3 - <<'EOF'
+          import json, os, re, subprocess
+          pr, repo, sha = os.environ["PR"], os.environ["REPO"], os.environ["HEAD_SHA"]
+          def gh(*a, inp=None):
+              return subprocess.run(["gh", *a], input=inp, capture_output=True, text=True)
+          summary = open("/tmp/review.md").read()
+          try:
+              inline = json.load(open("/tmp/inline.json"))
+              inline = inline if isinstance(inline, list) else []
+          except Exception:
+              inline = []
+          # Per-repo opt-out: a line `inline: off` in .github/review.md
+          try:
+              if re.search(r"(?im)^\s*inline:\s*off\b", open(".github/review.md").read()):
+                  print("inline: off in .github/review.md — summary only"); inline = []
+          except FileNotFoundError:
+              pass
+          # Lines GitHub accepts a comment on: added + context lines of the new file
+          valid, path, ln = {}, None, None
+          for l in gh("pr", "diff", pr, "-R", repo).stdout.splitlines():
+              if l.startswith("diff --git"):
+                  path, ln = None, None
+              elif l.startswith("+++ "):
+                  path = l[6:] if l.startswith("+++ b/") else None
+              elif l.startswith("--- "):
+                  pass
+              elif m := re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", l):
+                  ln = int(m.group(1))
+              elif path and ln is not None and l[:1] in ("+", " "):
+                  valid.setdefault(path, set()).add(ln); ln += 1
+          # Unresolved threads the bot already opened → don't open another on the same line
+          owner, name = repo.split("/")
+          q = "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{author{login}}}}}}}}"
+          r = gh("api", "graphql", "-f", f"query={q}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"p={pr}")
+          open_threads = set()
+          try:
+              for t in json.loads(r.stdout)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
+                  author = ((t["comments"]["nodes"] or [{}])[0].get("author") or {}).get("login", "")
+                  if not t["isResolved"] and author.startswith("github-actions"):
+                      open_threads.add((t["path"], t["line"]))
+          except Exception as e:
+              print(f"thread lookup failed ({e}) — no dedupe")
+          comments = []
+          for c in inline[:5]:
+              try:
+                  p, line, body = c["path"], int(c["line"]), str(c["body"])
+                  start = int(c["start_line"]) if c.get("start_line") is not None else None
+              except Exception:
+                  continue
+              lines = range(start if start else line, line + 1)
+              if not all(x in valid.get(p, ()) for x in lines) or (start and start >= line):
+                  print(f"skip (not in diff): {p}:{line}"); continue
+              if (p, line) in open_threads:
+                  print(f"skip (open thread already): {p}:{line}"); continue
+              cm = {"path": p, "line": line, "side": "RIGHT", "body": body}
+              if start:
+                  cm.update(start_line=start, start_side="RIGHT")
+              comments.append(cm)
+          payload = {"commit_id": sha, "event": "COMMENT", "body": summary, "comments": comments}
+          r = gh("api", f"repos/{repo}/pulls/{pr}/reviews", "--method", "POST", "--input", "-", inp=json.dumps(payload))
+          if r.returncode == 0:
+              print(f"Posted review: summary + {len(comments)} inline comment(s)")
+          else:
+              print(f"::warning::Review post failed ({r.stderr.strip()[:300]}) — posting summary as a comment")
+              r = gh("pr", "comment", pr, "-R", repo, "--body-file", "/tmp/review.md")
+              print(r.stdout or r.stderr)
+          EOF

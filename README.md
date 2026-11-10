@@ -56,6 +56,12 @@ this file, ref `stable`). Repos need no workflow file at all.
   Missing token → warning, review skipped.
 - **Per-repo rules (optional):** `.github/review.md` — extra rules for that repo
   only; they win over the generic prompt. `CLAUDE.md` is still read for context.
+- **Output:** one GitHub review — the summary (verdict + 🔴/🟠/🔵) as the review
+  body, plus **inline comments for 🔴/🟠 only** (max 5, committable `suggestion`
+  when the fix is small and certain). Inline comments on lines outside the diff
+  are dropped (the finding stays in the summary); no new thread where an open bot
+  thread already sits on that line. If posting fails, the summary goes out as a
+  plain comment. Opt out per repo with a line `inline: off` in `.github/review.md`.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`;
   `deep-review` label → Opus 5.5 + high effort.
 - **Never blocks a merge:** drafts/bot PRs are skipped (skipped counts as
