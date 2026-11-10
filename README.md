@@ -52,7 +52,7 @@ The same review, but run **directly** by GitHub on every PR in every repo
 targeted by the org ruleset **"Claude PR review"** (Require workflows to pass →
 this file, ref `stable`). Repos need no workflow file at all.
 
-- **Token:** org secret `BB_ANTHROPIC_TEAM_TOKEN`, shared with the targeted repos.
+- **Token:** org secret `ORG_ANTHROPIC_TEAM_TOKEN`, shared with the targeted repos.
   Missing token → warning, review skipped.
 - **Per-repo rules (optional):** `.github/review.md` — extra rules for that repo
   only; they win over the generic prompt. `CLAUDE.md` is still read for context.

@@ -4,7 +4,7 @@
 #
 # Per-repo context, all optional: CLAUDE.md (general repo standard) and
 # .github/review.md (extra review rules for that repo only).
-# Token: org secret BB_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
+# Token: org secret ORG_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
 # Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5; `deep-review` label → Opus 5.5 + high effort.
 #
 # This is a REQUIRED check, so it must never block a merge on its own: drafts and
@@ -30,7 +30,7 @@ jobs:
       pull-requests: write
     env:
       GH_TOKEN: ${{ github.token }}
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.BB_ANTHROPIC_TEAM_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.ORG_ANTHROPIC_TEAM_TOKEN }}
       PR: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
       REVIEW_MODEL: ${{ (contains(github.event.pull_request.labels.*.name, 'deep-review') && 'claude-opus-5-5') || vars.BB_REVIEW_MODEL || 'claude-sonnet-5' }}
@@ -54,7 +54,7 @@ jobs:
         continue-on-error: true
         run: |
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "::warning::BB_ANTHROPIC_TEAM_TOKEN not available to this repo — skipping review."
+            echo "::warning::ORG_ANTHROPIC_TEAM_TOKEN not available to this repo — skipping review."
             exit 0
           fi
           set -o pipefail
