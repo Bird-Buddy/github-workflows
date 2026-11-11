@@ -1,14 +1,18 @@
 """The GitHub side of the Claude PR review, before and after Claude runs.
 
-  prepare  Decide whether this push needs a review at all — a rebase that leaves
-           the PR's own changes identical doesn't — and hand Claude its previous
-           summary plus its still-open inline threads.
-  post     Update the ONE summary comment in place, post only NEW findings as
-           inline comments, and resolve the threads Claude verified as fixed.
+  prepare  Read-only, in the job where Claude runs. Decide whether this push
+           needs a review at all — a rebase that leaves the PR's own changes
+           identical doesn't — and hand Claude its previous summary plus its
+           still-open inline threads. Outputs skip and inline_off.
+  post     In a separate job with write access and no PR code: update the ONE
+           summary comment in place, post only NEW findings as inline comments,
+           and resolve the threads Claude verified as fixed. Claude's files come
+           in as an artifact and are treated as data.
 
-Env: GH_TOKEN, PR, REPO, HEAD_SHA (+ EVENT_ACTION for prepare, GITHUB_OUTPUT on
-Actions). REVIEW_BOT_LOGIN overrides the author whose comments count as ours
-(default github-actions). Run from the checked-out PR repo.
+Env: GH_TOKEN, PR, REPO, HEAD_SHA; EVENT_ACTION for prepare (run from the
+checked-out PR repo); SKIP and INLINE_OFF (prepare's outputs) for post.
+REVIEW_BOT_LOGIN overrides the author whose comments count as ours (default
+github-actions).
 """
 
 import hashlib
@@ -24,6 +28,7 @@ INLINE_JSON = "/tmp/inline.json"
 RESOLVED_JSON = "/tmp/resolved.json"
 PREV_REVIEW_MD = "/tmp/prev-review.md"
 OPEN_THREADS_JSON = "/tmp/open-threads.json"
+REVIEW_ERROR = "/tmp/review-error.txt"  # written by run_review.sh when claude -p fails
 REPO_RULES = (".github/review.md", "REVIEW.md")  # pinned to the base branch before this runs
 
 STATE_PREFIX = "<!-- claude-pr-review:state "
@@ -143,7 +148,7 @@ def resolvable(ids, threads) -> list[str]:
 
 def render_summary(state: dict, body: str, note: str = "") -> str:
     reviewed = state["sha"][:7]
-    header = f"## Claude review · `{reviewed}` · pass {state['pass']}"
+    header = f"## Claude review · `{reviewed}` · " + (f"pass {state['pass']}" if state.get("pass") else "not reviewed yet")
     parts = [f"{STATE_PREFIX}{json.dumps(state, sort_keys=True)} -->", header]
     if note:
         parts.append(note)
@@ -170,6 +175,16 @@ def should_skip(action: str, state: dict, fingerprint: str | None) -> bool:
 def rebase_note(state: dict, head: str) -> str:
     return (f"_Rebased: no changes to this PR's own diff since `{state['sha'][:7]}`, "
             f"so this review still applies (checked at `{head[:7]}`)._")
+
+
+def failure_note(error: str, head: str, state: dict) -> str:
+    """Why there's no fresh review at this commit; an earlier review, if any, stays below."""
+    if re.search(r"\blimit", error, re.IGNORECASE):
+        reason = "the review seat hit its usage limit"
+    else:
+        reason = (error.strip().splitlines() or ["unknown error"])[0][:200]
+    earlier = f" The review below is from `{state['sha'][:7]}`." if state.get("pass") else ""
+    return f"_⚠️ Not reviewed at `{head[:7]}`: {reason}.{earlier} Close and reopen the PR to retry._"
 
 
 # ------------------------------------------------------------------ GitHub I/O
@@ -231,6 +246,14 @@ def open_threads(repo: str, pr: str) -> list[dict]:
     return threads
 
 
+def read_text(path) -> str:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def load_json(path, default):
     try:
         with open(path) as f:
@@ -252,14 +275,15 @@ def set_output(key: str, value: str) -> None:
 # -------------------------------------------------------------------- commands
 
 def prepare() -> None:
-    pr, repo, head = os.environ["PR"], os.environ["REPO"], os.environ["HEAD_SHA"]
+    pr, repo = os.environ["PR"], os.environ["REPO"]
     existing = find_summary(repo, pr)
     state, prev_body = parse_summary(existing["body"]) if existing else ({}, "")
     fingerprint = diff_fingerprint(gh("pr", "diff", pr, "-R", repo).stdout)
+    rules = "\n".join(read_text(p) for p in REPO_RULES)
+    set_output("inline_off", "true" if inline_disabled(rules) else "false")
 
     if should_skip(os.environ.get("EVENT_ACTION", ""), state, fingerprint):
         print(f"PR's own changes are identical to the review at {state['sha'][:7]} (rebase) — skipping")
-        write_summary(repo, pr, existing, render_summary(state, prev_body, rebase_note(state, head)))
         set_output("skip", "true")
         return
 
@@ -275,14 +299,29 @@ def prepare() -> None:
 
 def post() -> None:
     pr, repo, head = os.environ["PR"], os.environ["REPO"], os.environ["HEAD_SHA"]
-    if not os.path.exists(REVIEW_MD) or not open(REVIEW_MD).read().strip():
-        print("No review written — nothing to post.")
+    existing = find_summary(repo, pr)
+    state, prev_body = parse_summary(existing["body"]) if existing else ({}, "")
+
+    if os.environ.get("SKIP") == "true":
+        if existing:
+            write_summary(repo, pr, existing, render_summary(state, prev_body, rebase_note(state, head)))
+            print(f"Rebase only — noted on the review at {state['sha'][:7]}")
         return
-    summary = strip_heading(without_suggestions(open(REVIEW_MD).read()))
+
+    summary = read_text(REVIEW_MD)
+    if not summary:
+        error = read_text(REVIEW_ERROR)
+        if not error:
+            print("No review written — nothing to post.")
+            return
+        note = failure_note(error, head, state)
+        url = write_summary(repo, pr, existing, render_summary(state or {"sha": head, "pass": 0}, prev_body, note))
+        print(f"::warning::Claude review failed ({error[:200]}) — noted on the summary: {url}")
+        return
+    summary = strip_heading(without_suggestions(summary))
 
     inline = load_json(INLINE_JSON, [])
-    rules = "\n".join(open(p).read() for p in REPO_RULES if os.path.exists(p))
-    if inline_disabled(rules):
+    if os.environ.get("INLINE_OFF") == "true":
         print("inline: off in the repo's review rules — summary only")
         inline = []
 
@@ -292,9 +331,7 @@ def post() -> None:
     for s in skipped:
         print(f"skip inline ({s})")
 
-    existing = find_summary(repo, pr)
-    prev_state = parse_summary(existing["body"])[0] if existing else {}
-    state = {"fingerprint": diff_fingerprint(diff), "sha": head, "pass": int(prev_state.get("pass", 0)) + 1}
+    state = {"fingerprint": diff_fingerprint(diff), "sha": head, "pass": int(state.get("pass", 0)) + 1}
     url = write_summary(repo, pr, existing, render_summary(state, summary))
     print(f"Summary {'updated' if existing else 'posted'}: {url}")
 

@@ -62,9 +62,9 @@ this file, ref **`main`**). Repos need no workflow file at all.
 |---|---|
 | `review/prompt.md` | The review prompt (`{{PR}}`, `{{REPO}}` placeholders) |
 | `review/restore_base_config.sh` | Pins `.claude/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, review rules to the **base** branch |
-| `review/github_review.py prepare` | Skips a rebase-only push; gives Claude its previous summary + open threads |
-| `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md`, `/tmp/inline.json`, `/tmp/resolved.json` |
-| `review/github_review.py post` | Updates the summary comment, posts new inline comments, resolves fixed threads |
+| `review/github_review.py prepare` | Skips a rebase-only push; gives Claude its previous summary + open threads (read-only) |
+| `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md`, `/tmp/inline.json`, `/tmp/resolved.json` (or `/tmp/review-error.txt`) |
+| `review/github_review.py post` | Separate job: updates the summary comment, posts new inline comments, resolves fixed threads |
 | `review/tests/` | Unit tests (`python3 -m unittest discover -s review/tests`) |
 
 The workflow downloads `review/` from this repo **at the commit it runs from**
@@ -86,6 +86,10 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   hooks), `.mcp.json`, every `CLAUDE.md`/`AGENTS.md` and the review rules are
   reset to the base branch (deleted if base has none). Rule changes apply once
   merged. Without this, a hook added in a PR would run with the seat token.
+- **Claude never holds a token that can write.** Two jobs: `review` (read-only
+  `GITHUB_TOKEN`) runs Claude and uploads its output files as an artifact;
+  `post` (write token, needed to resolve threads) runs only the tooling from
+  this repo — no PR code, no Claude — and treats those files as data.
 - **One summary per PR, updated in place.** The first review posts a summary
   comment (verdict + 🔴/🟠/🔵, header `Claude review · <commit> · pass N`); every
   later review edits that same comment and adds a **Since last review** section
@@ -100,16 +104,20 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
 - **No committable suggestions** — the fix is explained (optionally as a plain
   code block) and the author writes it; any ```` ```suggestion ```` block is
   turned into a plain code block before posting.
-- **When it runs:** on open, reopen, ready-for-review, every push, and the
-  `deep-review` label. A push whose own changes are identical to the last review
+- **When it runs:** on open, reopen and every push — **drafts included**. A
+  ruleset-enforced workflow only fires on those events (not `ready_for_review`
+  or `labeled`, whatever the workflow's `types` say), so skipping drafts would
+  leave a PR marked ready unreviewed until its next push. A push whose own changes are identical to the last review
   (a plain **rebase**: compared by a fingerprint of the +/- lines, ignoring line
   numbers) skips Claude and only notes the rebase in the summary. Several pushes
   in a row cancel the older runs, so only the newest commit is reviewed.
-  For a fresh full review regardless, add `deep-review`.
-- **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`;
-  `deep-review` label → Opus 5.5 + high effort.
-- **Never blocks a merge:** drafts/bot PRs are skipped (skipped counts as
-  passing) and every step after checkout is `continue-on-error`.
+  For a fresh review regardless, close and reopen the PR.
+- **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`.
+- **If Claude fails** (e.g. the seat's usage limit), the summary says so —
+  "⚠️ Not reviewed at `<commit>`: …" — and the run gets a warning, instead of
+  the review silently not appearing.
+- **Never blocks a merge:** bot PRs are skipped (skipped counts as passing)
+  and every step after checkout is `continue-on-error`.
 - **CLI version** is pinned (`CLAUDE_CODE_VERSION` in the workflow); bump it
   deliberately, like any dependency.
 - Remove a repo's own `pr-review.yml` caller when it's covered by the ruleset,

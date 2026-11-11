@@ -9,12 +9,21 @@
 # Per-repo context, all optional: CLAUDE.md (general repo standard) and
 # .github/review.md or REVIEW.md (extra review rules; `inline: off` = summary only).
 # Token: org secret ORG_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
-# Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5; `deep-review` label → Opus 5.5 + high effort.
+# Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5.
 #
-# This is a REQUIRED check, so it must never block a merge on its own: drafts and
-# bot PRs are skipped (skipped = passing), and every step after checkout is non-fatal.
-# Claude only runs once its config + review rules are pinned to the base branch
-# (restore_base_config.sh), so a PR cannot steer its own review.
+# Triggers: a ruleset-enforced workflow only fires on opened / reopened /
+# synchronize — NOT ready_for_review or labeled, whatever `types` says. So drafts
+# are reviewed too (otherwise a draft marked ready gets nothing until its next push).
+#
+# This is a REQUIRED check, so it must never block a merge on its own: bot PRs are
+# skipped (skipped = passing), and every step after checkout is non-fatal.
+#
+# Two jobs, so Claude never holds a token that can write:
+#   review  read-only token. Pins Claude's config + review rules to the base branch
+#           (restore_base_config.sh, so a PR cannot steer its own review), runs
+#           Claude, and uploads its output files as an artifact.
+#   post    write token, no PR code, no Claude. Updates the summary comment, posts
+#           new inline comments and resolves fixed threads (needs contents: write).
 #
 # One summary comment per PR, edited in place on every review (✅ fixed / 🆕 new);
 # only new findings get inline comments, fixed ones get resolved. A push that only
@@ -24,17 +33,14 @@ name: Claude PR review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize, labeled]
+    types: [opened, reopened, synchronize]
 
 jobs:
   review:
     if: >-
-      github.event.pull_request.draft == false &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
-      !endsWith(github.actor, '[bot]') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'deep-review')
-    # Several pushes in a row: only the newest commit gets reviewed. Job-level on
-    # purpose: skipped runs (e.g. a bot adding a size label) must not cancel a review.
+      !endsWith(github.actor, '[bot]')
+    # Several pushes in a row: only the newest commit gets reviewed.
     concurrency:
       group: claude-review-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -42,7 +48,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
+    outputs:
+      skip: ${{ steps.prepare.outputs.skip }}
+      inline_off: ${{ steps.prepare.outputs.inline_off }}
     env:
       GH_TOKEN: ${{ github.token }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.ORG_ANTHROPIC_TEAM_TOKEN }}
@@ -50,8 +59,8 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      REVIEW_MODEL: ${{ (contains(github.event.pull_request.labels.*.name, 'deep-review') && 'claude-opus-5-5') || vars.BB_REVIEW_MODEL || 'claude-sonnet-5' }}
-      REVIEW_EFFORT: ${{ contains(github.event.pull_request.labels.*.name, 'deep-review') && 'high' || 'medium' }}
+      REVIEW_MODEL: ${{ vars.BB_REVIEW_MODEL || 'claude-sonnet-5' }}
+      REVIEW_EFFORT: medium
 
     steps:
       - uses: actions/checkout@v4
@@ -96,21 +105,81 @@ jobs:
         run: python3 "$REVIEW_TOOLS/github_review.py" prepare
 
       - uses: actions/setup-node@v5
-        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
+        if: steps.prepare.outputs.skip == 'false'
         with:
           node-version: 22
 
       - name: Install Claude Code CLI
-        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
+        if: steps.prepare.outputs.skip == 'false'
         continue-on-error: true
         run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
       - name: Review PR
-        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
+        if: steps.prepare.outputs.skip == 'false'
         continue-on-error: true
         run: bash "$REVIEW_TOOLS/run_review.sh"
 
+      - name: Hand Claude's output to the post job
+        if: steps.prepare.outputs.skip == 'false'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review
+          path: |
+            /tmp/review.md
+            /tmp/inline.json
+            /tmp/resolved.json
+            /tmp/review-error.txt
+          if-no-files-found: ignore
+          retention-days: 1
+
+  post:
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # resolveReviewThread needs contents: write. Safe here: this job runs only the
+    # review tooling from github-workflows — no PR code, no Claude — and treats the
+    # artifact as data (inline comments are checked against the diff, only our own
+    # open threads can be resolved).
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      SKIP: ${{ needs.review.outputs.skip }}
+      INLINE_OFF: ${{ needs.review.outputs.inline_off }}
+
+    steps:
+      - name: Fetch review tooling (same commit as this workflow)
+        id: tooling
+        continue-on-error: true
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          shopt -s nocasematch
+          if [[ "$WORKFLOW_REF" == Bird-Buddy/github-workflows/* ]]; then
+            ref="$WORKFLOW_SHA"
+          else
+            ref=main
+          fi
+          dir="$RUNNER_TEMP/github-workflows"
+          mkdir -p "$dir"
+          gh api "repos/Bird-Buddy/github-workflows/tarball/$ref" | tar -xz -C "$dir" --strip-components=1
+          echo "REVIEW_TOOLS=$dir/review" >> "$GITHUB_ENV"
+
+      - name: Get Claude's output
+        if: env.SKIP == 'false'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: claude-review
+          path: /tmp
+
       - name: Post (update summary, new inline comments, resolve fixed)
-        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
+        if: steps.tooling.outcome == 'success' && (env.SKIP == 'true' || env.SKIP == 'false')
         continue-on-error: true
         run: python3 "$REVIEW_TOOLS/github_review.py" post
