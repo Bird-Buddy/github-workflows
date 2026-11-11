@@ -15,6 +15,10 @@
 # bot PRs are skipped (skipped = passing), and every step after checkout is non-fatal.
 # Claude only runs once its config + review rules are pinned to the base branch
 # (restore_base_config.sh), so a PR cannot steer its own review.
+#
+# One summary comment per PR, edited in place on every review (✅ fixed / 🆕 new);
+# only new findings get inline comments, fixed ones get resolved. A push that only
+# rebases (the PR's own changes are identical) skips Claude — see github_review.py.
 
 name: Claude PR review
 
@@ -29,6 +33,11 @@ jobs:
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
       !endsWith(github.actor, '[bot]') &&
       (github.event.action != 'labeled' || github.event.label.name == 'deep-review')
+    # Several pushes in a row: only the newest commit gets reviewed. Job-level on
+    # purpose: skipped runs (e.g. a bot adding a size label) must not cancel a review.
+    concurrency:
+      group: claude-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -78,22 +87,30 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: bash "$REVIEW_TOOLS/restore_base_config.sh"
 
-      - uses: actions/setup-node@v5
+      - name: Prepare (skip rebases, hand Claude its previous review)
+        id: prepare
         if: steps.pin.outcome == 'success'
+        continue-on-error: true
+        env:
+          EVENT_ACTION: ${{ github.event.action }}
+        run: python3 "$REVIEW_TOOLS/github_review.py" prepare
+
+      - uses: actions/setup-node@v5
+        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
         with:
           node-version: 22
 
       - name: Install Claude Code CLI
-        if: steps.pin.outcome == 'success'
+        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
         continue-on-error: true
         run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
       - name: Review PR
-        if: steps.pin.outcome == 'success'
+        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
         continue-on-error: true
         run: bash "$REVIEW_TOOLS/run_review.sh"
 
-      - name: Post review (summary + inline)
-        if: steps.pin.outcome == 'success'
+      - name: Post (update summary, new inline comments, resolve fixed)
+        if: steps.pin.outcome == 'success' && steps.prepare.outputs.skip != 'true'
         continue-on-error: true
-        run: python3 "$REVIEW_TOOLS/post_review.py"
+        run: python3 "$REVIEW_TOOLS/github_review.py" post
