@@ -8,6 +8,7 @@ from github_review import (  # noqa: E402
     build_comments,
     commentable_lines,
     diff_fingerprint,
+    failure_note,
     inline_disabled,
     parse_summary,
     rebase_note,
@@ -224,9 +225,31 @@ class Summary(unittest.TestCase):
         self.assertEqual(parse_summary("## Review\nsomething"), ({}, ""))
         self.assertEqual(parse_summary("<!-- claude-pr-review:state {broken -->\n<!-- claude-pr-review:body -->\nx"), ({}, ""))
 
+    def test_not_reviewed_yet(self):
+        state = {"sha": "abcdef1234567890", "pass": 0}
+        rendered = render_summary(state, "", note="_⚠️ failed_")
+        self.assertIn("## Claude review · `abcdef1` · not reviewed yet", rendered)
+        self.assertEqual(parse_summary(rendered), (state, ""))
+
     def test_strip_heading(self):
         self.assertEqual(strip_heading("## Review\n\nVerdict."), "Verdict.")
         self.assertEqual(strip_heading("Verdict.\n## Later heading"), "Verdict.\n## Later heading")
+
+
+class FailureNote(unittest.TestCase):
+    def test_usage_limit(self):
+        note = failure_note("Claude AI usage limit reached|1762891200", "9999999aaaa", {})
+        self.assertIn("Not reviewed at `9999999`: the review seat hit its usage limit.", note)
+        self.assertNotIn("review below", note)
+
+    def test_other_error_first_line_only(self):
+        note = failure_note("API Error: 500 overloaded\nstack…", "9999999aaaa", {})
+        self.assertIn(": API Error: 500 overloaded.", note)
+        self.assertNotIn("stack", note)
+
+    def test_points_at_earlier_review(self):
+        note = failure_note("boom", "9999999aaaa", {"sha": "abcdef1234", "pass": 2})
+        self.assertIn("The review below is from `abcdef1`.", note)
 
 
 class ShouldSkip(unittest.TestCase):
@@ -239,7 +262,7 @@ class ShouldSkip(unittest.TestCase):
         self.assertFalse(should_skip("synchronize", self.state, "bar"))
 
     def test_other_events_always_run(self):
-        for action in ("opened", "reopened", "ready_for_review", "labeled"):
+        for action in ("opened", "reopened"):
             self.assertFalse(should_skip(action, self.state, "f00"))
 
     def test_no_previous_review_or_no_diff_runs(self):

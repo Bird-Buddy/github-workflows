@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the Claude review for one PR. Reads what `github_review.py prepare` left
 # (/tmp/prev-review.md, /tmp/open-threads.json); writes /tmp/review.md,
-# /tmp/inline.json and /tmp/resolved.json for `github_review.py post`.
+# /tmp/inline.json and /tmp/resolved.json for `github_review.py post` — or
+# /tmp/review-error.txt if claude -p fails.
 #
 # Env: CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, PR, REPO, REVIEW_MODEL, REVIEW_EFFORT.
 # Run from the checked-out PR repo (the model reads its files and CLAUDE.md).
@@ -16,11 +17,21 @@ fi
 
 prompt="$(sed -e "s|{{PR}}|${PR}|g" -e "s|{{REPO}}|${REPO}|g" "$here/prompt.md")"
 
+status=0
 claude -p "$prompt" \
   --model "$REVIEW_MODEL" \
   --effort "$REVIEW_EFFORT" \
   --output-format json \
-  --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Read,Grep,Glob,Write" | tee /tmp/claude-out.json
+  --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Read,Grep,Glob,Write" | tee /tmp/claude-out.json || status=$?
+
+# A failed run (e.g. the seat's usage limit) leaves a reason for `github_review.py post`
+# to note on the PR, instead of the review silently not appearing.
+if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error // false' /tmp/claude-out.json 2>/dev/null)" = true ]; then
+  reason="$(jq -r '.result // empty' /tmp/claude-out.json 2>/dev/null | head -c 300 || true)"
+  [ -n "$reason" ] || reason="$(tail -c 300 /tmp/claude-out.json 2>/dev/null || true)"
+  echo "${reason:-claude exited with status $status}" > /tmp/review-error.txt
+  echo "::warning::Claude review failed: $(head -n 1 /tmp/review-error.txt)"
+fi
 
 echo "===== TOKEN USAGE / COST (claude -p) ====="
 jq '{num_turns, duration_ms, total_cost_usd, usage: {input_tokens: .usage.input_tokens, output_tokens: .usage.output_tokens, cache_creation_input_tokens: .usage.cache_creation_input_tokens, cache_read_input_tokens: .usage.cache_read_input_tokens}}' /tmp/claude-out.json 2>/dev/null || tail -5 /tmp/claude-out.json
