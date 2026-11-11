@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs the Claude review for one PR. Writes /tmp/review.md and /tmp/inline.json;
-# posting them is post_review.py's job.
+# Runs the Claude review for one PR. Reads what `github_review.py prepare` left
+# (/tmp/prev-review.md, /tmp/open-threads.json); writes /tmp/review.md,
+# /tmp/inline.json and /tmp/resolved.json for `github_review.py post`.
 #
 # Env: CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, PR, REPO, REVIEW_MODEL, REVIEW_EFFORT.
 # Run from the checked-out PR repo (the model reads its files and CLAUDE.md).

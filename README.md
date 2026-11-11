@@ -62,8 +62,9 @@ this file, ref **`main`**). Repos need no workflow file at all.
 |---|---|
 | `review/prompt.md` | The review prompt (`{{PR}}`, `{{REPO}}` placeholders) |
 | `review/restore_base_config.sh` | Pins `.claude/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, review rules to the **base** branch |
-| `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md` + `/tmp/inline.json` |
-| `review/post_review.py` | Validates inline comments against the diff, dedupes, posts one review |
+| `review/github_review.py prepare` | Skips a rebase-only push; gives Claude its previous summary + open threads |
+| `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md`, `/tmp/inline.json`, `/tmp/resolved.json` |
+| `review/github_review.py post` | Updates the summary comment, posts new inline comments, resolves fixed threads |
 | `review/tests/` | Unit tests (`python3 -m unittest discover -s review/tests`) |
 
 The workflow downloads `review/` from this repo **at the commit it runs from**
@@ -85,14 +86,26 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   hooks), `.mcp.json`, every `CLAUDE.md`/`AGENTS.md` and the review rules are
   reset to the base branch (deleted if base has none). Rule changes apply once
   merged. Without this, a hook added in a PR would run with the seat token.
-- **Output:** one GitHub review — the summary (verdict + 🔴/🟠/🔵) as the review
-  body, plus **inline comments for 🔴/🟠 only** (max 5). **No committable
-  suggestions** — the fix is explained (optionally as a plain code block) and the
-  author writes it; any ```` ```suggestion ```` block is turned into a plain code
-  block before posting. Inline comments on lines outside the diff
-  are dropped (the finding stays in the summary); no new thread where an open bot
-  thread already sits on that line. If posting fails, the summary goes out as a
-  plain comment. Opt out per repo with a line `inline: off` in the review rules.
+- **One summary per PR, updated in place.** The first review posts a summary
+  comment (verdict + 🔴/🟠/🔵, header `Claude review · <commit> · pass N`); every
+  later review edits that same comment and adds a **Since last review** section
+  (✅ fixed / 🆕 new). Earlier versions stay in the comment's "edited" history.
+  Editing doesn't notify anyone, so a push with nothing new stays quiet.
+- **Inline comments for new 🔴/🟠 only** (max 5), posted as a small review that
+  links to the summary — that's the notification when something new turns up.
+  Threads for findings Claude verified as fixed are **resolved**, so open threads
+  are exactly what still applies. Comments on lines outside the diff are dropped
+  (the finding stays in the summary); no new thread where an open bot thread
+  already sits. Opt out per repo with a line `inline: off` in the review rules.
+- **No committable suggestions** — the fix is explained (optionally as a plain
+  code block) and the author writes it; any ```` ```suggestion ```` block is
+  turned into a plain code block before posting.
+- **When it runs:** on open, reopen, ready-for-review, every push, and the
+  `deep-review` label. A push whose own changes are identical to the last review
+  (a plain **rebase**: compared by a fingerprint of the +/- lines, ignoring line
+  numbers) skips Claude and only notes the rebase in the summary. Several pushes
+  in a row cancel the older runs, so only the newest commit is reviewed.
+  For a fresh full review regardless, add `deep-review`.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`;
   `deep-review` label → Opus 5.5 + high effort.
 - **Never blocks a merge:** drafts/bot PRs are skipped (skipped counts as
