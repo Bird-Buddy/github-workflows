@@ -116,7 +116,8 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
 - **If Claude fails** (e.g. the seat's usage limit), the summary says so —
   "⚠️ Not reviewed at `<commit>`: …" — and the run gets a warning, instead of
   the review silently not appearing.
-- **Never blocks a merge:** bot PRs are skipped (skipped counts as passing)
+- **Never blocks a merge:** bot PRs and release-please PRs (branch
+  `release-please--*`, opened by a plain user account) are skipped (skipped counts as passing)
   and every step after checkout is `continue-on-error`.
 - **CLI version** is pinned (`CLAUDE_CODE_VERSION` in the workflow); bump it
   deliberately, like any dependency.
