@@ -15,7 +15,8 @@
 # synchronize — NOT ready_for_review or labeled, whatever `types` says. So drafts
 # are reviewed too (otherwise a draft marked ready gets nothing until its next push).
 #
-# This is a REQUIRED check, so it must never block a merge on its own: bot PRs are
+# This is a REQUIRED check, so it must never block a merge on its own: bot PRs and
+# release-please PRs (opened by a plain user account, not a [bot]) are
 # skipped (skipped = passing), and every step after checkout is non-fatal.
 #
 # Two jobs, so Claude never holds a token that can write:
@@ -39,7 +40,8 @@ jobs:
   review:
     if: >-
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
-      !endsWith(github.actor, '[bot]')
+      !endsWith(github.actor, '[bot]') &&
+      !startsWith(github.event.pull_request.head.ref, 'release-please--')
     # Several pushes in a row: only the newest commit gets reviewed.
     concurrency:
       group: claude-review-${{ github.repository }}-${{ github.event.pull_request.number }}
