@@ -147,9 +147,7 @@ def resolvable(ids, threads) -> list[str]:
 # -------------------------------------------------------- the summary comment
 
 def render_summary(state: dict, body: str, note: str = "") -> str:
-    reviewed = state["sha"][:7]
-    header = f"## Claude review · `{reviewed}` · " + (f"pass {state['pass']}" if state.get("pass") else "not reviewed yet")
-    parts = [f"{STATE_PREFIX}{json.dumps(state, sort_keys=True)} -->", header]
+    parts = [f"{STATE_PREFIX}{json.dumps(state, sort_keys=True)} -->", "## Claude review"]
     if note:
         parts.append(note)
     parts += [BODY_MARKER, body.strip()]

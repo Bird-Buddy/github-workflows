@@ -214,7 +214,8 @@ class Summary(unittest.TestCase):
         body = "Looks good.\n\nNo blocking issues."
         rendered = render_summary(self.state, body)
         self.assertEqual(parse_summary(rendered), (self.state, body))
-        self.assertIn("## Claude review · `abcdef1` · pass 2", rendered)
+        self.assertIn("## Claude review\n", rendered)
+        self.assertNotIn("abcdef1", rendered.split("-->", 1)[1])
 
     def test_note_is_not_part_of_body(self):
         rendered = render_summary(self.state, "Body.", note=rebase_note(self.state, "9999999aaaa"))
@@ -228,7 +229,7 @@ class Summary(unittest.TestCase):
     def test_not_reviewed_yet(self):
         state = {"sha": "abcdef1234567890", "pass": 0}
         rendered = render_summary(state, "", note="_⚠️ failed_")
-        self.assertIn("## Claude review · `abcdef1` · not reviewed yet", rendered)
+        self.assertIn("## Claude review\n_⚠️ failed_", rendered)
         self.assertEqual(parse_summary(rendered), (state, ""))
 
     def test_strip_heading(self):

@@ -91,7 +91,7 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   `post` (write token, needed to resolve threads) runs only the tooling from
   this repo — no PR code, no Claude — and treats those files as data.
 - **One summary per PR, updated in place.** The first review posts a summary
-  comment (verdict + 🔴/🟠/🔵, header `Claude review · <commit> · pass N`); every
+  comment (verdict + 🔴/🟠/🔵, header `Claude review`); every
   later review edits that same comment and adds a **Since last review** section
   (✅ fixed / 🆕 new). Earlier versions stay in the comment's "edited" history.
   Editing doesn't notify anyone, so a push with nothing new stays quiet.
