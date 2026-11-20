@@ -116,9 +116,11 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
 - **Terraform plans are part of the review.** If the commit triggered plan
   workflows (any workflow file ending in `plan.yml`/`plan.yaml`), the review waits
   for them (max 8 min, then reviews without) and reads the plan comments they
-  post. A plan change the diff doesn't explain — drift, a version going
-  backwards, an unexpected replace/destroy — is flagged 🟠 (🔴 for a stateful
-  resource), because merging applies it. Repos without plan workflows don't wait.
+  post. Every plan change the diff doesn't explain is shown, because merging
+  applies it: risky ones (a version going backwards, an unexpected
+  replace/destroy) as 🟠 (🔴 for a stateful resource), the rest — e.g. an
+  in-place update of a secret whose value is hidden — in an **Also applied on
+  merge** section. Repos without plan workflows don't wait.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`.
 - **If Claude fails** (e.g. the seat's usage limit), the summary says so —
   "⚠️ Not reviewed at `<commit>`: …" — and the run gets a warning, instead of
