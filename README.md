@@ -63,6 +63,7 @@ this file, ref **`main`**). Repos need no workflow file at all.
 | `review/prompt.md` | The review prompt (`{{PR}}`, `{{REPO}}` placeholders) |
 | `review/restore_base_config.sh` | Pins `.claude/`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, review rules to the **base** branch |
 | `review/github_review.py prepare` | Skips a rebase-only push; gives Claude its previous summary + open threads (read-only) |
+| `review/wait_for_plans.sh` | Waits (max 8 min) for the commit's Terraform plan workflows, so Claude reads their plan comments |
 | `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md`, `/tmp/inline.json`, `/tmp/resolved.json` (or `/tmp/review-error.txt`) |
 | `review/github_review.py post` | Separate job: updates the summary comment, posts new inline comments, resolves fixed threads |
 | `review/tests/` | Unit tests (`python3 -m unittest discover -s review/tests`) |
@@ -112,6 +113,12 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   numbers) skips Claude and only notes the rebase in the summary. Several pushes
   in a row cancel the older runs, so only the newest commit is reviewed.
   For a fresh review regardless, close and reopen the PR.
+- **Terraform plans are part of the review.** If the commit triggered plan
+  workflows (any workflow file ending in `plan.yml`/`plan.yaml`), the review waits
+  for them (max 8 min, then reviews without) and reads the plan comments they
+  post. A plan change the diff doesn't explain — drift, a version going
+  backwards, an unexpected replace/destroy — is flagged 🟠 (🔴 for a stateful
+  resource), because merging applies it. Repos without plan workflows don't wait.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`.
 - **If Claude fails** (e.g. the seat's usage limit), the summary says so —
   "⚠️ Not reviewed at `<commit>`: …" — and the run gets a warning, instead of

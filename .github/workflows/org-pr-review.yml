@@ -21,8 +21,10 @@
 #
 # Two jobs, so Claude never holds a token that can write:
 #   review  read-only token. Pins Claude's config + review rules to the base branch
-#           (restore_base_config.sh, so a PR cannot steer its own review), runs
-#           Claude, and uploads its output files as an artifact.
+#           (restore_base_config.sh, so a PR cannot steer its own review), waits
+#           for the commit's Terraform plan workflows (wait_for_plans.sh, so Claude
+#           sees the plan comments), runs Claude, and uploads its output files as
+#           an artifact.
 #   post    write token, no PR code, no Claude. Updates the summary comment, posts
 #           new inline comments and resolves fixed threads (needs contents: write).
 #
@@ -47,8 +49,9 @@ jobs:
       group: claude-review-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
+      actions: read # wait_for_plans.sh: is a Terraform plan still running?
       contents: read
       pull-requests: read
     outputs:
@@ -115,6 +118,12 @@ jobs:
         if: steps.prepare.outputs.skip == 'false'
         continue-on-error: true
         run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - name: Wait for Terraform plans (Claude reads what merging applies)
+        if: steps.prepare.outputs.skip == 'false'
+        continue-on-error: true
+        timeout-minutes: 9
+        run: bash "$REVIEW_TOOLS/wait_for_plans.sh"
 
       - name: Review PR
         if: steps.prepare.outputs.skip == 'false'
