@@ -65,6 +65,7 @@ this file, ref **`main`**). Repos need no workflow file at all.
 | `review/github_review.py prepare` | Skips a rebase-only push; gives Claude its previous summary + open threads (read-only) |
 | `review/wait_for_plans.sh` | Waits (max 8 min) for the commit's Terraform plan workflows, so Claude reads their plan comments |
 | `review/run_review.sh` | Runs `claude -p` → writes `/tmp/review.md`, `/tmp/inline.json`, `/tmp/resolved.json` (or `/tmp/review-error.txt`) |
+| `review/grafana/` | Optional read-only Grafana MCP: server config (`mcp.json`) and when to use it (`prompt.md`, appended to the prompt) |
 | `review/github_review.py post` | Separate job: updates the summary comment, posts new inline comments, resolves fixed threads |
 | `review/tests/` | Unit tests (`python3 -m unittest discover -s review/tests`) |
 
@@ -121,6 +122,17 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   replace/destroy) as 🟠 (🔴 for a stateful resource), the rest — e.g. an
   in-place update of a secret whose value is hidden — in an **Also applied on
   merge** section. Repos without plan workflows don't wait.
+- **Grafana (optional):** with org secret `ORG_GRAFANA_REVIEW_TOKEN` (a **Viewer**
+  service account token) and Variable `BB_GRAFANA_URL`, Claude gets read-only
+  Grafana tools through [mcp-grafana](https://github.com/grafana/mcp-grafana)
+  (pinned version + checksum; started with `--disable-write`, Loki guardrail on,
+  and only the search/dashboard/datasource/Prometheus/Loki read tools allowed).
+  It uses them only when a finding depends on production behaviour (is this
+  metric/log/endpoint still used, how often does this error fire) and reports
+  numbers, never raw log lines. Without the secret the review runs as before.
+- **Credential guard:** before posting, the summary and inline comments are
+  checked for token-shaped strings (seat, GitHub, Grafana). On a match nothing
+  is posted except a "⚠️ Not reviewed" note. Claude also can't read `/proc`.
 - **Model:** org/repo Variable `BB_REVIEW_MODEL`, default `claude-sonnet-5`.
 - **If Claude fails** (e.g. the seat's usage limit), the summary says so —
   "⚠️ Not reviewed at `<commit>`: …" — and the run gets a warning, instead of

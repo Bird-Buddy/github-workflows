@@ -35,6 +35,9 @@ STATE_PREFIX = "<!-- claude-pr-review:state "
 BODY_MARKER = "<!-- claude-pr-review:body -->"
 HUNK = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 SUGGESTION_FENCE = re.compile(r"^(\s*(?:`{3,}|~{3,}))\s*suggestion\b", re.MULTILINE)
+# Tokens the review job can see (seat, GitHub, Grafana). Claude's output is untrusted:
+# a PR could try to get it to quote one, so a match withholds the whole review.
+SECRET = re.compile(r"sk-ant-[\w-]{20,}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_\w{30,}|\bglsa_\w{20,}|\bglc_[\w+/=]{20,}")
 THREADS_QUERY = (
     "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p)"
     "{reviewThreads(first:100){nodes{id isResolved path line originalLine"
@@ -185,6 +188,11 @@ def failure_note(error: str, head: str, state: dict) -> str:
     return f"_⚠️ Not reviewed at `{head[:7]}`: {reason}.{earlier} Close and reopen the PR to retry._"
 
 
+def leaks_secret(summary: str, inline) -> bool:
+    """True if the summary or any inline comment contains something token-shaped."""
+    return bool(SECRET.search(summary + "\n" + json.dumps(inline)))
+
+
 # ------------------------------------------------------------------ GitHub I/O
 
 def gh(*args, stdin=None):
@@ -319,6 +327,11 @@ def post() -> None:
     summary = strip_heading(without_suggestions(summary))
 
     inline = load_json(INLINE_JSON, [])
+    if leaks_secret(summary, inline):
+        note = failure_note("the review contained something that looks like a credential, so it was not posted", head, state)
+        url = write_summary(repo, pr, existing, render_summary(state or {"sha": head, "pass": 0}, prev_body, note))
+        print(f"::error::Review withheld: it matched a credential pattern — noted on the summary: {url}")
+        return
     if os.environ.get("INLINE_OFF") == "true":
         print("inline: off in the repo's review rules — summary only")
         inline = []

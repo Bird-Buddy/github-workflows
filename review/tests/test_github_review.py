@@ -10,6 +10,7 @@ from github_review import (  # noqa: E402
     diff_fingerprint,
     failure_note,
     inline_disabled,
+    leaks_secret,
     parse_summary,
     rebase_note,
     render_summary,
@@ -251,6 +252,19 @@ class FailureNote(unittest.TestCase):
     def test_points_at_earlier_review(self):
         note = failure_note("boom", "9999999aaaa", {"sha": "abcdef1234", "pass": 2})
         self.assertIn("The review below is from `abcdef1`.", note)
+
+
+class LeaksSecret(unittest.TestCase):
+    def test_tokens_in_summary(self):
+        for token in ("sk-ant-oat01-" + "a" * 40, "ghs_" + "A" * 36, "glsa_" + "b" * 32 + "_1234abcd"):
+            self.assertTrue(leaks_secret(f"Found it: {token}", []), token)
+
+    def test_token_in_inline_comment(self):
+        self.assertTrue(leaks_secret("fine", [{"path": "a.py", "line": 1, "body": "ghp_" + "x" * 36}]))
+
+    def test_ordinary_review(self):
+        summary = "🟠 `query_loki_logs` shows ~120 errors/day; see `sk-ant` docs and the `ghs_` prefix."
+        self.assertFalse(leaks_secret(summary, [{"path": "a.py", "line": 1, "body": "🔴 glsa token check"}]))
 
 
 class ShouldSkip(unittest.TestCase):
