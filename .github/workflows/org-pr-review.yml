@@ -11,7 +11,7 @@
 # Token: org secret ORG_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
 # Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5.
 # Grafana (optional): org secret ORG_GRAFANA_VIEW_TOKEN (Viewer service account) +
-# Variable BB_GRAFANA_URL → Claude gets read-only Grafana tools (review/grafana/).
+# Variable ORG_GRAFANA_URL → Claude gets read-only Grafana tools (review/grafana/).
 #
 # Triggers: a ruleset-enforced workflow only fires on opened / reopened /
 # synchronize — NOT ready_for_review or labeled, whatever `types` says. So drafts
@@ -145,7 +145,7 @@ jobs:
         if: steps.prepare.outputs.skip == 'false'
         continue-on-error: true
         env:
-          GRAFANA_URL: ${{ vars.BB_GRAFANA_URL }}
+          GRAFANA_URL: ${{ vars.ORG_GRAFANA_URL }}
           GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ORG_GRAFANA_VIEW_TOKEN }}
         run: bash "$REVIEW_TOOLS/run_review.sh"
 

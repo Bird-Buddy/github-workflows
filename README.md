@@ -123,7 +123,7 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   in-place update of a secret whose value is hidden — in an **Also applied on
   merge** section. Repos without plan workflows don't wait.
 - **Grafana (optional):** with org secret `ORG_GRAFANA_VIEW_TOKEN` (a **Viewer**
-  service account token) and Variable `BB_GRAFANA_URL`, Claude gets read-only
+  service account token) and Variable `ORG_GRAFANA_URL`, Claude gets read-only
   Grafana tools through [mcp-grafana](https://github.com/grafana/mcp-grafana)
   (pinned version + checksum; started with `--disable-write`, Loki guardrail on,
   and only the search/dashboard/datasource/Prometheus/Loki read tools allowed).
