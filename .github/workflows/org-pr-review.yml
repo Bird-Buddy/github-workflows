@@ -10,6 +10,8 @@
 # .github/review.md or REVIEW.md (extra review rules; `inline: off` = summary only).
 # Token: org secret ORG_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
 # Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5.
+# Grafana (optional): org secret ORG_GRAFANA_VIEW_TOKEN (Viewer service account) +
+# Variable ORG_GRAFANA_URL → Claude gets read-only Grafana tools (review/grafana/).
 #
 # Triggers: a ruleset-enforced workflow only fires on opened / reopened /
 # synchronize — NOT ready_for_review or labeled, whatever `types` says. So drafts
@@ -61,6 +63,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.ORG_ANTHROPIC_TEAM_TOKEN }}
       CLAUDE_CODE_VERSION: 2.1.322
+      MCP_GRAFANA_VERSION: 2.3.0
+      MCP_GRAFANA_SHA256: f808ea13d236e549a9fffa14b28398d30b5393623141307c916e26f5e7746671
+      HAS_GRAFANA_TOKEN: ${{ secrets.ORG_GRAFANA_VIEW_TOKEN != '' }}
       PR: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -119,6 +124,17 @@ jobs:
         continue-on-error: true
         run: npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
+      - name: Install Grafana MCP server (read-only Grafana tools for Claude)
+        if: steps.prepare.outputs.skip == 'false' && env.HAS_GRAFANA_TOKEN == 'true'
+        continue-on-error: true
+        run: |
+          curl -fsSL -o /tmp/mcp-grafana.tar.gz \
+            "https://github.com/grafana/mcp-grafana/releases/download/v${MCP_GRAFANA_VERSION}/mcp-grafana_Linux_x86_64.tar.gz"
+          echo "${MCP_GRAFANA_SHA256}  /tmp/mcp-grafana.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf /tmp/mcp-grafana.tar.gz -C "$RUNNER_TEMP/bin" mcp-grafana
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - name: Wait for Terraform plans (Claude reads what merging applies)
         if: steps.prepare.outputs.skip == 'false'
         continue-on-error: true
@@ -128,6 +144,9 @@ jobs:
       - name: Review PR
         if: steps.prepare.outputs.skip == 'false'
         continue-on-error: true
+        env:
+          GRAFANA_URL: ${{ vars.ORG_GRAFANA_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ORG_GRAFANA_VIEW_TOKEN }}
         run: bash "$REVIEW_TOOLS/run_review.sh"
 
       - name: Hand Claude's output to the post job

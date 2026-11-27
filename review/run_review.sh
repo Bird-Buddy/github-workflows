@@ -5,6 +5,8 @@
 # /tmp/review-error.txt if claude -p fails.
 #
 # Env: CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, PR, REPO, REVIEW_MODEL, REVIEW_EFFORT.
+# Optional: GRAFANA_URL + GRAFANA_SERVICE_ACCOUNT_TOKEN (and mcp-grafana on PATH)
+# give Claude read-only Grafana tools (grafana/mcp.json, grafana/prompt.md).
 # Run from the checked-out PR repo (the model reads its files and CLAUDE.md).
 set -euo pipefail
 
@@ -16,13 +18,30 @@ if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
 fi
 
 prompt="$(sed -e "s|{{PR}}|${PR}|g" -e "s|{{REPO}}|${REPO}|g" "$here/prompt.md")"
+tools="Bash(gh pr view:*),Bash(gh pr diff:*),Read,Grep,Glob,Write"
+mcp_args=(--strict-mcp-config)
+
+# Read-only tools only; mcp.json also starts the server with --disable-write.
+grafana_tools="search_dashboards get_dashboard_summary get_dashboard_panel_queries list_datasources get_datasource
+  query_prometheus list_prometheus_metric_names list_prometheus_label_names list_prometheus_label_values list_prometheus_metric_metadata
+  query_loki_logs query_loki_stats query_loki_patterns list_loki_label_names list_loki_label_values"
+if [ -n "${GRAFANA_URL:-}" ] && [ -n "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}" ] && command -v mcp-grafana >/dev/null; then
+  mcp_args+=(--mcp-config "$here/grafana/mcp.json")
+  for t in $grafana_tools; do tools+=",mcp__grafana__$t"; done
+  prompt+=$'\n\n'"$(cat "$here/grafana/prompt.md")"
+  echo "Grafana tools: on"
+else
+  echo "Grafana tools: off (no GRAFANA_URL / ORG_GRAFANA_VIEW_TOKEN, or mcp-grafana missing)"
+fi
 
 status=0
 claude -p "$prompt" \
   --model "$REVIEW_MODEL" \
   --effort "$REVIEW_EFFORT" \
   --output-format json \
-  --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Read,Grep,Glob,Write" | tee /tmp/claude-out.json || status=$?
+  "${mcp_args[@]}" \
+  --allowedTools "$tools" \
+  --disallowedTools "Read(//proc/**)" | tee /tmp/claude-out.json || status=$?
 
 # A failed run (e.g. the seat's usage limit) leaves a reason for `github_review.py post`
 # to note on the PR, instead of the review silently not appearing.
