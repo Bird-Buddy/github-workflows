@@ -34,23 +34,34 @@ else
   echo "Grafana tools: off (no GRAFANA_URL / ORG_GRAFANA_VIEW_TOKEN, or mcp-grafana missing)"
 fi
 
+# stream-json logs every tool call (summarised below); its last line is the same
+# result object --output-format json gives, kept in /tmp/claude-out.json.
 status=0
 claude -p "$prompt" \
   --model "$REVIEW_MODEL" \
   --effort "$REVIEW_EFFORT" \
-  --output-format json \
+  --output-format stream-json --verbose \
   "${mcp_args[@]}" \
   --allowedTools "$tools" \
-  --disallowedTools "Read(//proc/**)" | tee /tmp/claude-out.json || status=$?
+  --disallowedTools "Read(//proc/**)" > /tmp/claude-stream.jsonl || status=$?
+jq -c 'select(.type == "result")' /tmp/claude-stream.jsonl 2>/dev/null | tail -n 1 > /tmp/claude-out.json || true
+cat /tmp/claude-out.json
 
 # A failed run (e.g. the seat's usage limit) leaves a reason for `github_review.py post`
 # to note on the PR, instead of the review silently not appearing.
-if [ "$status" -ne 0 ] || [ "$(jq -r '.is_error // false' /tmp/claude-out.json 2>/dev/null)" = true ]; then
+if [ "$status" -ne 0 ] || [ ! -s /tmp/claude-out.json ] || [ "$(jq -r '.is_error // false' /tmp/claude-out.json 2>/dev/null)" = true ]; then
   reason="$(jq -r '.result // empty' /tmp/claude-out.json 2>/dev/null | head -c 300 || true)"
-  [ -n "$reason" ] || reason="$(tail -c 300 /tmp/claude-out.json 2>/dev/null || true)"
+  [ -n "$reason" ] || reason="$(tail -c 300 /tmp/claude-stream.jsonl 2>/dev/null || true)"
   echo "${reason:-claude exited with status $status}" > /tmp/review-error.txt
   echo "::warning::Claude review failed: $(head -n 1 /tmp/review-error.txt)"
 fi
+
+tool_uses='select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")'
+echo "===== TOOLS USED ====="
+jq -r "$tool_uses | .name" /tmp/claude-stream.jsonl 2>/dev/null | sort | uniq -c | sort -rn || true
+echo "===== GRAFANA QUERIES ====="
+jq -r "$tool_uses | select(.name | startswith(\"mcp__grafana__\")) | \"\(.name | ltrimstr(\"mcp__grafana__\")) \(.input | tostring | .[:300])\"" \
+  /tmp/claude-stream.jsonl 2>/dev/null || true
 
 echo "===== TOKEN USAGE / COST (claude -p) ====="
 jq '{num_turns, duration_ms, total_cost_usd, usage: {input_tokens: .usage.input_tokens, output_tokens: .usage.output_tokens, cache_creation_input_tokens: .usage.cache_creation_input_tokens, cache_read_input_tokens: .usage.cache_read_input_tokens}}' /tmp/claude-out.json 2>/dev/null || tail -5 /tmp/claude-out.json

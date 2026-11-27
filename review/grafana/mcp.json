@@ -1,17 +1,24 @@
 {
-  "mcpServers": {
-    "grafana": {
-      "command": "mcp-grafana",
-      "args": [
-        "--enabled-tools", "search,datasource,prometheus,loki,dashboard",
-        "--disable-write",
-        "--loki-guardrail-mode", "enforce",
-        "--max-loki-log-limit", "50"
-      ],
-      "env": {
-        "GRAFANA_URL": "${GRAFANA_URL}",
-        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
-      }
-    }
-  }
+	"mcpServers": {
+		"grafana": {
+			"command": "mcp-grafana",
+			"args": [
+				"--enabled-tools",
+				"search,datasource,prometheus,loki,dashboard",
+				"--disable-write",
+				"--loki-guardrail-mode",
+				"enforce",
+				"--loki-guardrail-max-range",
+				"168h",
+				"--prometheus-guardrail-mode",
+				"enforce",
+				"--max-loki-log-limit",
+				"50"
+			],
+			"env": {
+				"GRAFANA_URL": "${GRAFANA_URL}",
+				"GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
+			}
+		}
+	}
 }

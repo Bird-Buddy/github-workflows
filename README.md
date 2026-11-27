@@ -125,11 +125,17 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
 - **Grafana (optional):** with org secret `ORG_GRAFANA_VIEW_TOKEN` (a **Viewer**
   service account token) and Variable `ORG_GRAFANA_URL`, Claude gets read-only
   Grafana tools through [mcp-grafana](https://github.com/grafana/mcp-grafana)
-  (pinned version + checksum; started with `--disable-write`, Loki guardrail on,
-  and only the search/dashboard/datasource/Prometheus/Loki read tools allowed).
-  It uses them only when a finding depends on production behaviour (is this
-  metric/log/endpoint still used, how often does this error fire) and reports
-  numbers, never raw log lines. Without the secret the review runs as before.
+  (pinned version + checksum; started with `--disable-write`, Loki and Prometheus
+  guardrails on with a 7-day maximum range, and only the
+  search/dashboard/datasource/Prometheus/Loki read tools allowed). Claude decides
+  per PR whether production data would change its judgement (a threshold or
+  limit, a metric/log/endpoint still in use, how often an error path fires, a
+  claim about production in the PR) and checks instead of guessing. It reports
+  what it checked as numbers, never raw log lines. Without the secret the review
+  runs as before. Roll out per repo by giving it access to the secret and
+  `ORG_GRAFANA_URL`.
+- **Tool log:** each run's log lists the tools Claude used (`TOOLS USED`) and every
+  Grafana query it ran (`GRAFANA QUERIES`), so you can see what a review looked at.
 - **Credential guard:** before posting, the summary and inline comments are
   checked for token-shaped strings (seat, GitHub, Grafana). On a match nothing
   is posted except a "⚠️ Not reviewed" note. Claude also can't read `/proc`.
