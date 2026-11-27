@@ -122,7 +122,7 @@ to this repo (e.g. `ORG_GITHUB_READ_TOKEN`) to the "Fetch review tooling" step.
   replace/destroy) as 🟠 (🔴 for a stateful resource), the rest — e.g. an
   in-place update of a secret whose value is hidden — in an **Also applied on
   merge** section. Repos without plan workflows don't wait.
-- **Grafana (optional):** with org secret `ORG_GRAFANA_REVIEW_TOKEN` (a **Viewer**
+- **Grafana (optional):** with org secret `ORG_GRAFANA_VIEW_TOKEN` (a **Viewer**
   service account token) and Variable `BB_GRAFANA_URL`, Claude gets read-only
   Grafana tools through [mcp-grafana](https://github.com/grafana/mcp-grafana)
   (pinned version + checksum; started with `--disable-write`, Loki guardrail on,

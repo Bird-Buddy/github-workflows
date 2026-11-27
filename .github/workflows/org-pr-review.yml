@@ -10,7 +10,7 @@
 # .github/review.md or REVIEW.md (extra review rules; `inline: off` = summary only).
 # Token: org secret ORG_ANTHROPIC_TEAM_TOKEN (a `claude setup-token` Team seat token).
 # Model: org/repo Variable BB_REVIEW_MODEL, default claude-sonnet-5.
-# Grafana (optional): org secret ORG_GRAFANA_REVIEW_TOKEN (Viewer service account) +
+# Grafana (optional): org secret ORG_GRAFANA_VIEW_TOKEN (Viewer service account) +
 # Variable BB_GRAFANA_URL → Claude gets read-only Grafana tools (review/grafana/).
 #
 # Triggers: a ruleset-enforced workflow only fires on opened / reopened /
@@ -65,7 +65,7 @@ jobs:
       CLAUDE_CODE_VERSION: 2.1.322
       MCP_GRAFANA_VERSION: 2.3.0
       MCP_GRAFANA_SHA256: f808ea13d236e549a9fffa14b28398d30b5393623141307c916e26f5e7746671
-      HAS_GRAFANA_TOKEN: ${{ secrets.ORG_GRAFANA_REVIEW_TOKEN != '' }}
+      HAS_GRAFANA_TOKEN: ${{ secrets.ORG_GRAFANA_VIEW_TOKEN != '' }}
       PR: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -146,7 +146,7 @@ jobs:
         continue-on-error: true
         env:
           GRAFANA_URL: ${{ vars.BB_GRAFANA_URL }}
-          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ORG_GRAFANA_REVIEW_TOKEN }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ORG_GRAFANA_VIEW_TOKEN }}
         run: bash "$REVIEW_TOOLS/run_review.sh"
 
       - name: Hand Claude's output to the post job

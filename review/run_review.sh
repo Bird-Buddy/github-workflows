@@ -31,7 +31,7 @@ if [ -n "${GRAFANA_URL:-}" ] && [ -n "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}" ] && c
   prompt+=$'\n\n'"$(cat "$here/grafana/prompt.md")"
   echo "Grafana tools: on"
 else
-  echo "Grafana tools: off (no GRAFANA_URL / ORG_GRAFANA_REVIEW_TOKEN, or mcp-grafana missing)"
+  echo "Grafana tools: off (no GRAFANA_URL / ORG_GRAFANA_VIEW_TOKEN, or mcp-grafana missing)"
 fi
 
 status=0
